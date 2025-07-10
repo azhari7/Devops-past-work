@@ -1,0 +1,59 @@
+name: Build & Deploy API Mobile 
+
+on:
+  push:
+    branches:
+      - dev
+
+jobs:
+  build_and_deploy:
+    environment: Development
+    runs-on: Development
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v3
+      with:
+        ref: ${{ github.ref }}
+
+    - name: Set up Helm
+      run: |
+        mkdir -p ~/helm
+        wget https://get.helm.sh/helm-v3.9.3-linux-amd64.tar.gz -P ~/helm
+        tar -zxvf ~/helm/helm-v3.9.3-linux-amd64.tar.gz -C ~/helm
+        mv ~/helm/linux-amd64/helm ~/helm/
+        helm version
+
+    - name: Decode and replace values.yaml inside helm folder
+      run: |
+        echo "${{ secrets.CHART_VALUE }}" | base64 --decode > helm/values.yaml
+        cat helm/values.yaml
+        helm package ./helm
+
+    - name: Login to Helm OCI registry
+      run: |
+        echo "credential id is: [REDACTED]"
+        echo "username is: [REDACTED]"
+        echo "${{ secrets.HARBOR_CREDENTIALS_ID }}" | helm registry login registry.example.com --username ${{ secrets.HARBOR_USERNAME }} --password-stdin
+        helm push ${{ secrets.CHART_NAME }}-${{ secrets.CHART_VERSION }}.tgz oci://${{ secrets.HELM_REPO }}
+
+    - name: Build Docker image
+      run: |
+        echo "${{ secrets.VAULT_CONFIG }}" > combine.env
+        docker build --build-arg GITHUB_USERNAME=${{ secrets.GIT_USERNAME }} --build-arg GITHUB_TOKEN=${{ secrets.GIT_TOKEN }} -t ${{ secrets.DOCKER_REGISTRY }}/${{ secrets.IMAGE_TAG }}-${{ github.run_number }} .
+
+    - name: Login to Docker registry
+      run: |
+        echo "${{ secrets.HARBOR_CREDENTIALS_ID }}" | docker login registry.example.com --username ${{ secrets.HARBOR_USERNAME }} --password-stdin
+
+    - name: Push Docker image
+      run: |
+        docker push ${{ secrets.DOCKER_REGISTRY }}/${{ secrets.IMAGE_TAG }}-${{ github.run_number }}
+
+    - name: Deploy to Kubernetes
+      run: |
+        echo "${{ secrets.KUBE_CONFIG }}" > kubeconfig
+        export KUBECONFIG=kubeconfig
+        export HELM_EXPERIMENTAL_OCI=1
+        echo "${{ secrets.HARBOR_CREDENTIALS_ID }}" | ~/helm/helm registry login registry.example.com --username ${{ secrets.HARBOR_USERNAME }} --password-stdin
+        ~/helm/helm upgrade --install ${{ secrets.CHART_NAME }} oci://${{ secrets.HELM_REPO }}/${{ secrets.CHART_NAME }} --namespace ${{ secrets.NAMESPACE }} --version ${{ secrets.CHART_VERSION }} --set image.repository=${{ secrets.DOCKER_REGISTRY }}/,image.tag=${{ secrets.IMAGE_TAG }}-${{ github.run_number }}
