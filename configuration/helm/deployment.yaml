@@ -1,0 +1,54 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "mobile-api.fullname" . }}
+  labels:
+    app: {{ include "mobile-api.name" . }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app: {{ include "mobile-api.name" . }}
+  template:
+    metadata:
+      labels:
+        app: {{ include "mobile-api.name" . }}
+      annotations:
+        vault.hashicorp.com/agent-inject: 'true'
+        vault.hashicorp.com/role: '{{ .Values.vault.role }}'
+        vault.hashicorp.com/agent-inject-token: 'true'
+        vault.hashicorp.com/auth-path: '{{ .Values.vault.authPath }}'
+        vault.hashicorp.com/agent-inject-secret-token: 'auth/token/lookup-self'
+        vault.hashicorp.com/agent-inject-template-token: |
+          {{`{{- with secret "auth/token/lookup-self" -}}
+             {{ .Data.id }}
+          {{- end }}`}}
+        vault.hashicorp.com/agent-image: "hashicorp/vault:1.18.1"
+    spec:
+      serviceAccountName: {{ .Values.serviceAccount.name }}
+      imagePullSecrets:
+        - name: {{ .Values.image.pullSecret }}
+      containers:
+        - name: mobile-api
+          image: "{{ .Values.image.repository }}{{ .Values.image.tag }}"
+          command: ["/bin/sh"]
+          args:
+            - "-c"
+            - |
+              export VAULT_TOKEN=$(cat /vault/secrets/token)
+              set -a
+              . /app/.env
+              set +a
+              cd /app
+              exec mobile-api
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 15001
+          resources:
+            requests:
+              cpu: {{ .Values.resources.requests.cpu }}
+              memory: {{ .Values.resources.requests.memory }}
+            limits:
+              cpu: {{ .Values.resources.limits.cpu }}
+              memory: {{ .Values.resources.limits.memory }}
