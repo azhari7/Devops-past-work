@@ -1,0 +1,50 @@
+# Stage 1: Build the application with Delve
+FROM golang:1.24 AS builder
+
+# Build arguments for GitHub authentication
+ARG GITHUB_USERNAME
+ARG GITHUB_TOKEN
+
+# Set up GOPRIVATE and configure git to use the username and token
+ENV GOPRIVATE=github.com/[REDACTED]
+RUN git config --global url."https://${GITHUB_USERNAME}:${GITHUB_TOKEN}@github.com".insteadOf "https://github.com"
+
+# Set the working directory inside the container
+WORKDIR /app
+
+# Copy the source code
+COPY . .
+
+# Install dependencies, install Delve, and build the application with debugging symbols
+RUN go mod tidy \
+    && go build -gcflags="all=-N -l" -o /app/mobile-api-linux-amd64 . \
+    && echo "Checking if the app binary was built" && ls -l /app
+
+# Stage 2: Create a lightweight runtime image
+FROM alpine:latest
+
+# Install necessary runtime dependencies
+RUN apk add --no-cache libc6-compat
+
+# Create a new non-root user
+RUN addgroup -S appgroup && adduser -S appuser -G appgroup
+
+# Set the working directory inside the container
+WORKDIR /app
+
+# Copy the compiled application and configuration files
+COPY combine.env /app/.env
+COPY --from=builder /app/captcha.ttf /app/captcha.ttf
+COPY --from=builder /app/mobile-api-linux-amd64 /usr/local/bin/mobile-api
+
+# Change ownership of necessary files to the new user
+RUN chown -R appuser:appgroup /app /usr/local/bin/mobile-api
+
+# Switch to the non-root user
+USER appuser
+
+# Expose ports for the application
+EXPOSE 15001
+
+# Run the application
+CMD ["mobile-api"]
