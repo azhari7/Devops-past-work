@@ -413,6 +413,92 @@ defaults
 
 Migrates CI/CD to use Docker Hub instead of Amazon ECR, updating Terraform and buildspec configurations.
 
+CI/CD Migration to AWS (Docker Hub Edition)
+
+    ⚠️ Note: This is an approximate project  — done as a prototype, not in official employment.
+
+🔄 Registry Switch
+
+Instead of using Amazon ECR, the Docker image is:
+
+    Tagged like: docker.io/yourusername/rails-app:latest
+
+    Pushed to your Docker Hub account
+
+    Pullable by Kubernetes in EKS
+
+🔐 Docker Hub Secrets
+
+You'll need to store these in AWS Systems Manager (SSM) or GitHub Secrets:
+
+    DOCKER_USERNAME
+
+    DOCKER_PASSWORD
+
+🔁 Updated Terraform + buildspec.yml
+```
+buildspec.yml (CI/CD logic)
+
+version: 0.2
+
+env:
+  secrets-manager:
+    DOCKER_USERNAME: "dockerhub-username"
+    DOCKER_PASSWORD: "dockerhub-password"
+
+phases:
+  pre_build:
+    commands:
+      - echo Logging into Docker Hub...
+      - echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USERNAME" --password-stdin
+  build:
+    commands:
+      - echo Building image...
+      - docker build -t $DOCKER_USERNAME/rails-app:latest .
+  post_build:
+    commands:
+      - echo Pushing image to Docker Hub...
+      - docker push $DOCKER_USERNAME/rails-app:latest
+
+artifacts:
+  files:
+    - imagedigest.txt
+```
+🔧 Terraform Snippets
+```
+Remove ECR section. Keep CodeBuild and CodePipeline mostly the same.
+
+Environment variables for Docker Hub creds:
+
+environment {
+  compute_type = "BUILD_GENERAL1_SMALL"
+  image        = "aws/codebuild/standard:5.0"
+  type         = "LINUX_CONTAINER"
+  environment_variables = [
+    {
+      name  = "DOCKER_USERNAME"
+      value = "your-dockerhub-user"
+      type  = "PLAINTEXT" # Or "SECRETS_MANAGER"
+    },
+    {
+      name  = "DOCKER_PASSWORD"
+      value = "your-dockerhub-pass"
+      type  = "PLAINTEXT"
+    }
+  ]
+  privileged_mode = true # needed for Docker
+}
+```
+    For better security, store those in AWS Secrets Manager and reference them via type = "SECRETS_MANAGER".
+
+🚀 Deployment
+
+1. Code pushed to GitHub
+2. CodePipeline triggers CodeBuild
+3. CodeBuild builds Docker image
+4. Image pushed to Docker Hub
+5. A Helm release or K8s deployment watches/pulls latest image
+
 ---
 
 This comprehensive setup ensures a secure, scalable, and efficient deployment of the mobile API service with integrated monitoring and CI/CD practices.
