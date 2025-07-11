@@ -1,3 +1,5 @@
+Note : Full config file is in folder configuration but is not complete due to confidentiality
+
 # 📦 Mobile API Deployment for Government Service
 
 This project is a Go-based mobile backend API containerized with a multi-stage Docker build and deployed to a Kubernetes cluster using Helm. It includes advanced features such as Vault for secrets injection, HPA for autoscaling, and is exposed via NGINX Ingress with TLS.
